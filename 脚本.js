@@ -10,7 +10,6 @@
 // @grant        GM_unregisterMenuCommand
 // @author       You
 // @match        https://www.bilibili.com/video/*
-// @icon         https://www.google.com/s2/favicons?sz=64&domain=curlconverter.com
 // @grant        GM.xmlHttpRequest
 // ==/UserScript==
 
