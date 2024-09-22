@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BiliBli评论批量举报
 // @namespace    https://github.com/ayyayyayy2002/BlibiliCommentBatchReport
-// @version      0.0.1
-// @description  以“垃圾广告”理由举报评论区的前二十个评论
+// @version      0.0.3
+// @description  以“垃圾广告”理由举报评论区的所有评论
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
@@ -12,6 +12,8 @@
 // @match        https://www.bilibili.com/video/*
 // @icon         https://i2.hdslb.com/bfs/app/8920e6741fc2808cce5b81bc27abdbda291655d3.png@240w_240h_1c_1s_!web-avatar-space-header.avif
 // @grant        GM.xmlHttpRequest
+// @downloadURL https://update.greasyfork.org/scripts/501280/BiliBli%E8%AF%84%E8%AE%BA%E6%89%B9%E9%87%8F%E4%B8%BE%E6%8A%A5.user.js
+// @updateURL https://update.greasyfork.org/scripts/501280/BiliBli%E8%AF%84%E8%AE%BA%E6%89%B9%E9%87%8F%E4%B8%BE%E6%8A%A5.meta.js
 // ==/UserScript==
 
 // 创建用于显示诊断信息的窗口
@@ -66,55 +68,78 @@ function addButton() {
 
 
 function getOid() {
-    updateDiagnosticInfo("getOid function called\n");
+    //updateDiagnosticInfo("获取OID<br>");
     var biliComments = document.querySelector('bili-comments'); // 获取bili-comments元素
     var dataParams = biliComments.getAttribute('data-params'); // 获取data-params属性值
     var oid = dataParams.split(',')[1]; // 将data-params属性值按逗号分隔并取第二个值存入oid中
     return oid; // 返回oid的值
 }
 
+let page = 1; // 初始化 page 值为 1
+
+async function reportAllComment() {
+    const oid = getOid();
+
+    try {
+        while (true) { // 无限循环，直到手动停止
+            const rpids = await getAllRpids(); // 先获取当前页的 rpid
+
+            if (rpids.length === 0) {
+                updateDiagnosticInfo('<strong style="font-size: 2em; color: blue;">全部评论举报完成</strong><br>');
+                console.log("完成"); // 输出“完成”
+                break; // 如果没有 rpid，停止循环
+            }
+
+            await processRpids(oid, rpids); // 处理当前页面的 rpid
+
+            page++; // 增加 page 值，准备下一次请求
+        }
+    } catch (error) {
+        updateDiagnosticInfo("获取 RPID 时发生错误: " + error + '\n');
+    }
+}
+
 function getAllRpids() {
     const oid = getOid();
-    updateDiagnosticInfo("getAllRpids function called\n");
+    updateDiagnosticInfo(`获取RpID，当前页码： ${page}<br>`);
 
-    // 返回一个 Promise 对象
     return new Promise((resolve, reject) => {
         GM.xmlHttpRequest({
             method: "GET",
-            url: `https://api.bilibili.com/x/v2/reply?type=1&oid=${oid}&sort=1&ps=20&pn=1&nohot=0`,
+            url: `https://api.bilibili.com/x/v2/reply?type=1&oid=${oid}&sort=1&ps=20&pn=${page}&nohot=0`,
             headers: {
                 'Cookie': document.cookie
             },
             onload: function (response) {
                 var jsonResponse = JSON.parse(response.responseText);
-                var rpidArray = jsonResponse.data.replies.map(reply => reply.rpid);
-                resolve(rpidArray); // 使用 resolve 将结果传递出去
+                //console.log(jsonResponse);  // 输出请求返回的完整值至控制台
+                const replies = jsonResponse.data.replies || []; // 确保回复存在
+                var rpidArray = replies.map(reply => reply.rpid);
+                resolve(rpidArray); // 返回 rpid 数组
+            },
+            onerror: function (error) {
+                reject(error); // 处理请求错误
             }
         });
     });
 }
 
-// 在 reportAllComment 函数中，使用 async/await 来处理异步操作
-async function reportAllComment() {
-    const oid = getOid();
-    try {
-        const rpids = await getAllRpids(); // 使用 await 来等待 getAllRpids 的 Promise 结果
-        let index = 0;
-        const interval = 2500;
+async function processRpids(oid, rpids) {
+    let index = 0;
+    const interval = 3000;
 
-        function sendReportRequest() {
-            if (index < rpids.length) {
-                reportComment(oid, rpids[index]);
-                index++;
-                setTimeout(sendReportRequest, interval);
-            }
-        }
+    // 使用一个 Promise 来确保所有请求都完成
+    const promises = rpids.map((rpid, idx) => {
+        return new Promise(resolve => {
+            setTimeout(() => {
+                reportComment(oid, rpid);
+                resolve(); // 完成当前 rpid 的报告
+            }, idx * interval); // 每个请求之间的间隔
+        });
+    });
 
-        // 调用sendReportRequest函数
-        sendReportRequest();
-    } catch (error) {
-        updateDiagnosticInfo("Error occurred while getting rpids:", error+'\n');
-    }
+    // 等待所有 rpid 的请求完成
+    await Promise.all(promises);
 }
 
 
@@ -134,21 +159,34 @@ function getCsrf() {
     return csrfText;
 }
 function reportComment(oid, rpid) {
-    const csrf = getCsrf();
+    const csrf = getCsrf(); // 获取 CSRF
     const url = `https://api.bilibili.com/x/v2/reply/report?type=1&oid=${oid}&rpid=${rpid}&reason=1&content=&add_blacklist=false&ordering=heat&gaia_source=main_web&csrf=${csrf}`;
 
-    GM.xmlHttpRequest({
-        method: "POST",
-        url: url,
-        headers: {
-            'Cookie': document.cookie // Pass the cookies from the page to the request
-        },
-        responseType: "text",
-        onload: function(response) {
-            updateDiagnosticInfo(response.responseText+'\n');
+    // 创建 XMLHttpRequest 对象
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded'); // 设置请求头
+    xhr.withCredentials = true; // 允许发送 cookies
+
+    // 处理响应
+    xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            updateDiagnosticInfo(`成功举报 RpID: ${rpid} - 响应内容: ${xhr.responseText}<br>`);
+        } else {
+            updateDiagnosticInfo(`举报 RpID 失败: ${rpid} 状态码: ${xhr.status}<br>`);
         }
-    });
+    };
+
+    xhr.onerror = function() {
+        console.error("请求错误，rpid:", rpid);
+    };
+
+    // 构建请求体（如果需要，可以根据 API 文档进行调整）
+    const body = `oid=${oid}&rpid=${rpid}&reason=1&content=&add_blacklist=false&ordering=heat&gaia_source=main_web&csrf=${csrf}`;
+
+    xhr.send(body); // 发送请求
 }
+
 
 
 
