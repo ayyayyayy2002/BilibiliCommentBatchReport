@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         BiliBli评论批量举报
 // @namespace    https://github.com/ayyayyayy2002/BlibiliCommentBatchReport
-// @version      0.0.3
-// @description  以“垃圾广告”理由举报评论区的所有评论
+// @version      0.0.4
+// @description  用“垃圾广告”理由举报评论区的所有评论
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
 // @grant        GM_unregisterMenuCommand
+// @connect      api.bilibili.com
 // @author       You
 // @match        https://www.bilibili.com/video/*
 // @icon         https://i2.hdslb.com/bfs/app/8920e6741fc2808cce5b81bc27abdbda291655d3.png@240w_240h_1c_1s_!web-avatar-space-header.avif
